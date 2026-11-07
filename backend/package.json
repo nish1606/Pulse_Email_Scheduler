@@ -1,0 +1,44 @@
+{
+  "name": "pulse-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PULSE email scheduler API",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "worker": "tsx watch src/queue/emailWorker.ts",
+    "dev:worker": "tsx watch src/queue/emailWorker.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "start:worker": "node dist/queue/emailWorker.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@bull-board/api": "^9.11.0",
+    "@bull-board/express": "^9.11.0",
+    "@elastic/elasticsearch": "^8.19.2",
+    "@prisma/client": "6.19.2",
+    "@slack/web-api": "^8.3.0",
+    "bullmq": "^6.7.1",
+    "connect-redis": "^10.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.1",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "ioredis": "^6.0.0",
+    "nodemailer": "6.10.1",
+    "prisma": "6.19.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
+    "@types/nodemailer": "^8.0.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

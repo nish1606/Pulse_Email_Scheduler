@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EmailStatus {
+  SCHEDULED
+  PROCESSING
+  SENT
+  FAILED
+  RATE_LIMITED
+}
+
+model User {
+  id            String   @id @default(cuid())
+  googleId      String?  @unique
+  email         String   @unique
+  name          String?
+  avatarUrl     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  senders       Sender[]
+  scheduledEmails Email[]
+  slackAccount  SlackAccount?
+}
+
+model Sender {
+  id          String   @id @default(cuid())
+  userId      String?
+  name        String
+  email       String   @unique
+  isActive    Boolean  @default(true)
+  hourlyLimit Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  emails      Email[]
+
+  @@index([userId])
+}
+
+model Email {
+  id                 String      @id @default(cuid())
+  userId             String?
+  senderId           String
+  recipient          String
+  subject            String
+  body               String
+  scheduledAt        DateTime
+  sentAt             DateTime?
+  status             EmailStatus @default(SCHEDULED)
+  failureReason      String?
+  etherealPreviewUrl String?
+  idempotencyKey     String      @unique
+  bullJobId          String?     @unique
+  sendDelayMs        Int?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  user               User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sender             Sender      @relation(fields: [senderId], references: [id], onDelete: Restrict)
+
+  @@index([status, scheduledAt])
+  @@index([senderId])
+  @@index([userId])
+}
+
+model SlackAccount {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  teamId        String?
+  teamName      String?
+  channelId     String?
+  channelName   String?
+  accessToken   String
+  botUserId     String?
+  connectedAt   DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, sans-serif;
+  background: #ffffff;
+  color: #111111;
+}
+
+@layer components {
+  .ong-input {
+    @apply w-full rounded-[12px] bg-ong-input px-6 text-[15px] text-ong-text placeholder:text-ong-muted outline-none ring-0 border-0 transition focus:ring-2 focus:ring-ong-primary/20;
+    min-height: 56px;
+  }
+  .ong-input-lg {
+    @apply ong-input;
+    min-height: 70px;
+  }
+  .ong-btn-green {
+    @apply inline-flex items-center justify-center rounded-[12px] bg-ong-primary px-6 text-[16px] font-semibold text-white transition hover:bg-[#15803d] focus:outline-none focus:ring-2 focus:ring-ong-primary/30 disabled:opacity-60;
+    min-height: 60px;
+  }
+  .ong-btn-pill-outline {
+    @apply inline-flex items-center justify-center rounded-full border-[1.5px] border-ong-primary bg-white px-5 py-2 text-[14px] font-medium text-ong-primary transition hover:bg-ong-tint focus:outline-none focus:ring-2 focus:ring-ong-primary/20 disabled:opacity-60;
+  }
+  .ong-btn-pill-solid {
+    @apply inline-flex items-center justify-center rounded-full bg-ong-primary px-5 py-2 text-[14px] font-medium text-white transition hover:bg-[#15803d] focus:outline-none focus:ring-2 focus:ring-ong-primary/30 disabled:opacity-60;
+  }
+  .ong-card {
+    @apply rounded-[16px] border border-ong-border bg-white;
+  }
+}

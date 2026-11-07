@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Build
+dist/
+build/
+**/dist/
+**/build/
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Prisma
+backend/prisma/migrations/*.sql.bak
+
+# Docker/local data
+.docker-data/
+
+# Local root-level test payloads
+/_es1.json
+/_m3*.json
+/_m4*.json
+/_test_*.json
