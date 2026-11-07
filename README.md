@@ -49,47 +49,45 @@ The project addresses the operational parts of delayed email delivery that are d
 ## Project structure
 
 ```text
-D:\Email_scheduler\
-|-- backend\
-|   |-- prisma\
-|   |   |-- migrations\                # Prisma migrations
+pulse-email-scheduler/
+|-- backend/
+|   |-- prisma/
+|   |   |-- migrations/                # Prisma migrations
 |   |   `-- schema.prisma              # PostgreSQL schema (User, Sender, Email, SlackAccount)
-|   |-- scripts\                       # Operational/tmp and verification scripts (includes preserved _p* evidence scripts)
-|   |-- src\
-|   |   |-- config\                    # Prisma, Redis/ioredis, Elasticsearch clients
-|   |   |-- middleware\                # Session auth and Bull Board basic auth
-|   |   |-- queue\                     # BullMQ queue, worker, reconcile, rate limit, lock, throttle
-|   |   |-- routes\                    # Express route modules (auth, emails, senders, dashboard, slack)
-|   |   |-- services\                  # Google OAuth, mail, search/indexing, Slack
-|   |   |-- types\                     # Express session typings
-|   |   |-- utils\                     # HTTP/validation helpers
+|   |-- src/
+|   |   |-- config/                    # Prisma, Redis/ioredis, Elasticsearch clients
+|   |   |-- middleware/                # Session auth and Bull Board basic auth
+|   |   |-- queue/                     # BullMQ queue, worker, reconcile, rate limit, lock, throttle
+|   |   |-- routes/                    # Express route modules (auth, emails, senders, dashboard, slack)
+|   |   |-- services/                  # Google OAuth, mail, search/indexing, Slack
+|   |   |-- types/                     # Express session typings
+|   |   |-- utils/                     # HTTP/validation helpers
 |   |   `-- server.ts                  # Express API entrypoint
 |   |-- .env.example
 |   |-- package.json
 |   `-- tsconfig.json
-|-- frontend\
-|   |-- public\                        # Static assets (favicon/icons)
-|   |-- src\
-|   |   |-- components\                # ProtectedRoute, SlackConnectionCard, (legacy ComposeModal present)
-|   |   |-- hooks\                     # Auth context/hook
-|   |   |-- layouts\                   # Dashboard layout/shell
-|   |   |-- pages\                     # Login, Dashboard, Scheduled, Sent, Compose, Email detail
-|   |   |-- services\                  # API client (`VITE_API_URL`, credentials included)
-|   |   |-- types\                     # Shared frontend types
-|   |   |-- utils\                     # CSV/text recipient parsing
+|-- frontend/
+|   |-- public/                        # Static assets (favicon/icons)
+|   |-- src/
+|   |   |-- components/                # Reusable UI components
+|   |   |-- hooks/                     # Auth context/hook
+|   |   |-- layouts/                   # Dashboard layout/shell
+|   |   |-- pages/                     # Login, Dashboard, Scheduled, Sent, Compose, Email detail
+|   |   |-- services/                  # API client (`VITE_API_URL`, credentials included)
+|   |   |-- types/                     # Shared frontend types
+|   |   |-- utils/                     # CSV/text recipient parsing
 |   |   |-- App.tsx                    # Routes
 |   |   `-- main.tsx
 |   |-- .env.example
 |   |-- package.json
 |   `-- vite.config.ts
+|-- docs/
+|   |-- DEMO_SCRIPT.md                 # Demo walkthrough (if included in the repository)
+|   `-- GITHUB_SUBMISSION_CHECKLIST.md # Submission checklist (if included in the repository)
 |-- docker-compose.yml                 # PostgreSQL, Redis (AOF), Elasticsearch
 |-- .gitignore
 `-- README.md
 ```
-
-Notes:
-- `backend/src/modules/*` directories may exist in the working copy; active API behavior is implemented under `backend/src/routes`, `services`, `queue`, and `server.ts`.
-- Root-level `_m*`, `_p*`, `_es1.json`, `_test_*.json`, and log files are preserved local verification artifacts unless explicitly approved for cleanup.
 
 ## Prerequisites
 
@@ -127,7 +125,7 @@ Edit the local `.env` files with real values. Never commit secrets or place cred
 | `REDIS_URL` | Redis connection string used by BullMQ, rate limiting, throttling, locks, and sessions. |
 | `ELASTICSEARCH_URL` | Elasticsearch node URL. |
 | `WORKER_CONCURRENCY` | BullMQ worker concurrency (default in code falls back to `5` if unset/invalid). |
-| `MIN_DELAY_BETWEEN_EMAILS_MS` | Environment fallback minimum delay between sends (ms). Batch `sendDelayMs` can override per email; worker enforces the effective global throttle. |
+| `MIN_DELAY_BETWEEN_EMAILS_MS` | Environment fallback/global minimum delay between sends (ms). `sendDelayMs` specifies the requested per-email delay. The worker enforces the effective delay as the maximum of the configured global minimum and the email-specific delay, coordinating sends through a shared Redis throttle. |
 | `MAX_EMAILS_PER_HOUR_PER_SENDER` | Environment fallback sender hourly limit; `Sender.hourlyLimit` overrides per sender. |
 | `ETHEREAL_SMTP_HOST` | Ethereal SMTP host (template uses `smtp.ethereal.email`). |
 | `ETHEREAL_SMTP_PORT` | Ethereal SMTP port (template uses `587`). |
@@ -145,6 +143,13 @@ Edit the local `.env` files with real values. Never commit secrets or place cred
 | `SLACK_DEFAULT_CHANNEL_ID` | Optional default Slack channel ID used by `sendSlackMessage` when an account has no `channelId`. |
 
 Operational note: `backend/src/server.ts` also supports `EXPOSE_QUEUE_STATS=true` to expose `/api/queue/stats` in production (otherwise production returns 404 for that endpoint while still requiring auth in code). This is not listed in `.env.example`.
+
+### OAuth setup
+
+To run the Google and Slack integrations locally, the provider configuration must match the backend callback URLs and frontend origin:
+
+- **Google Cloud Console:** configure an OAuth client with an authorized redirect URI that exactly matches `GOOGLE_CALLBACK_URL` (template: `http://localhost:3000/api/auth/google/callback`). Ensure the frontend origin used by the app is allowed by your local CORS/app configuration (`FRONTEND_URL`).
+- **Slack app:** configure the OAuth redirect URL to match `SLACK_REDIRECT_URI` (template: `http://localhost:3000/api/slack/callback`). The Slack app must have the permissions/scopes required to send messages to the selected channel (the implementation requests chat and channel-reading scopes; see `backend/src/services/slack.ts`). If a connected Slack account does not have `channelId` set, `SLACK_DEFAULT_CHANNEL_ID` can be used as the default notification channel.
 
 ### Frontend variables (`frontend/.env.example`)
 
@@ -293,10 +298,46 @@ Notes:
 ### Minimum delay and concurrency
 
 - `MIN_DELAY_BETWEEN_EMAILS_MS` is the environment fallback. Schedule requests may provide `sendDelayMs` (persisted per email).
-- The worker computes an effective delay and coordinates sends globally through a shared Redis throttle key (`pulse:throttle:next-send-at-ms`) so batches/workers do not get independent parallel send timelines.
+- `sendDelayMs` specifies the requested per-email delay. The worker enforces the effective delay as the maximum of the configured global minimum (`MIN_DELAY_BETWEEN_EMAILS_MS`) and the email-specific delay, coordinating sends through a shared Redis throttle. Batches do not get independent parallel send timelines.
 - `WORKER_CONCURRENCY` controls BullMQ worker concurrency. Safety mechanisms include Redis send locks, conditional DB claims, status/idempotency guards, stable job IDs, and delayed-job deferral (`DelayedError`/`moveToDelayed`) for claim/rate-limit/delay paths.
 - The implementation is designed to avoid intentionally sending the same job twice, but it is not documented here as strict exactly-once SMTP delivery.
 
+## Implemented features mapped to the assignment
+
+Status labels: **Implemented (verified in code)**, **Implemented (runtime evidence partial)**, **PARTIAL**, **NOT TESTED**.
+
+### Backend
+
+| Assignment requirement | Implementation | Status / evidence note |
+|---|---|---|
+| Email scheduling API | `POST /api/emails/schedule` (`backend/src/routes/emails.ts`) | Implemented; runtime scheduling/idempotency/load evidence recorded in prior verification sessions (partial overall). |
+| Database persistence | PostgreSQL + Prisma models (`User`, `Sender`, `Email`, `SlackAccount`) | Implemented; Prisma schema valid. |
+| Background scheduling | BullMQ delayed jobs, queue `email-send` (`backend/src/queue/*`) | Implemented; runtime evidence recorded previously. |
+| Restart recovery | `reconcilePendingEmailJobs()` on startup + Redis/DB persistence | Implemented; small-scale restart recovery evidenced previously; 1,000 delayed-job controlled restart not run. |
+| Multiple senders | Sender CRUD-ish APIs (`GET/POST/PATCH /api/senders`) with user ownership checks | Implemented. |
+| Email delivery | Nodemailer/Ethereal (`backend/src/services/mail.ts`) | Implemented; controlled Ethereal delivery evidenced previously. |
+| Hourly rate limiting | Redis-backed atomic per-sender quota + `RATE_LIMITED` reschedule | Implemented; clean quota behavior evidenced previously. Slack live notification remains a separate evidence gap. |
+| Minimum send delay | Global Redis throttle + persisted `sendDelayMs`/env fallback | Implemented; contention fix applied earlier; tight 2s boundary proof remains partial. |
+| Worker concurrency | Configurable `WORKER_CONCURRENCY`; lock/claim/throttle controls | Implemented; 2-worker contention repro fixed and evidenced previously. |
+| Duplicate protection | Unique `idempotencyKey`, stable `email-<id>` job IDs, DB claims/locks | Implemented; same-`scheduledAt` idempotency evidenced previously. |
+| Email search | Elasticsearch index/search (`backend/src/services/search.ts`, `/api/emails/search`) | Implemented; ES query and P11 Phase 2 A/B isolation evidenced previously. |
+| Queue monitoring | Bull Board `/admin/queues` with basic auth; `/api/queue/stats` (auth; restricted in production) | Implemented; live security/exposure in target environment not fully verified. |
+| Slack integration | OAuth connect/callback/status/disconnect + rate-limit notification path | PARTIAL: code/routes exist; real OAuth connect, live hourly-limit Slack message, disconnect/reconnect runtime evidence not fully captured; 2-account isolation not tested. |
+
+### Frontend
+
+| Assignment requirement | Implementation | Status / evidence note |
+|---|---|---|
+| Google authentication | Login page triggers backend Google OAuth; `/api/auth/me`, callback/session handling | Implemented; user reported 2-profile browser/OAuth verification (manual evidence). |
+| User dashboard | `DashboardPage`, stats/sender usage endpoints | Implemented; browser isolation reported by user. |
+| Scheduled emails | `ScheduledPage`, `GET /api/emails/scheduled` | Implemented. |
+| Sent emails | `SentPage`, `GET /api/emails/sent` | Implemented. |
+| Compose email | `ComposePage` (route `/compose`) | Implemented/PARTIAL UI gaps: rich-text formatting and attachment upload are not fully wired; compose-page hourly-limit save is not wired in `ComposePage`. |
+| Multiple recipients | CSV/text parsing (`frontend/src/utils/csv.ts`) used by compose flow | Implemented in code; browser/Figma flow not fully verified. |
+| Scheduling controls | Scheduled start time and batch `sendDelayMs`; sender hourly limit managed via sender APIs/UI patterns | PARTIAL: start time/delay present; sender hourly-limit editing is available in API/sender flows; compose-page parity may be incomplete. |
+| Sender management | Sender API + dashboard/sender-related UI | Implemented (API verified in prior sessions). |
+| Slack connection | `SlackConnectionCard` and `/api/slack/*` integration | PARTIAL runtime evidence. |
+| Loading and error states | Present in auth/pages/components (e.g., login, dashboard, compose, sent/scheduled/detail) | Implemented (code-level); not exhaustively browser-verified. |
 
 ## API overview
 
@@ -354,9 +395,64 @@ Actual route registration is in `backend/src/server.ts` and route files under `b
 ## Configuration and operational notes
 
 - **Worker concurrency:** set `WORKER_CONCURRENCY` in `backend/.env`. The worker defaults to `5` when unset/invalid.
-- **Minimum delay:** set `MIN_DELAY_BETWEEN_EMAILS_MS` for the environment fallback. Batch schedule requests may persist `sendDelayMs` per email; worker enforces a global Redis throttle and uses `max(global, email/effective)` behavior as implemented.
+- **Minimum delay:** set `MIN_DELAY_BETWEEN_EMAILS_MS` for the environment/global minimum fallback. Batch schedule requests may persist `sendDelayMs` per email as the requested delay. The worker enforces the effective delay as the maximum of the configured global minimum and the email-specific delay using a shared Redis throttle.
 - **Hourly sender limits:** set `MAX_EMAILS_PER_HOUR_PER_SENDER` as fallback. Per-sender overrides can be set via `Sender.hourlyLimit` (sender APIs). Rate-limited jobs are rescheduled as `RATE_LIMITED`, not dropped.
 - **BullMQ monitoring:** use `/admin/queues` (Bull Board) with `BULL_BOARD_USER`/`BULL_BOARD_PASS`. Do not expose weak/default credentials.
 - **Ethereal previews:** inspect worker/API logs and stored `etherealPreviewUrl` values for sent test emails.
 - **Elasticsearch:** local service runs at `http://localhost:9200` by default with security disabled; index is `pulse-emails`.
 - **Safe restarts:** restart API and worker as normal processes; do not run destructive commands such as `docker compose down -v`, Redis flush, or volume resets when preserving queue/DB state. Startup reconcile is intended to restore pending jobs after process restarts.
+
+## Verification and testing
+
+This section lists checks with code support and/or previously recorded evidence. It does not claim every path is fully verified.
+
+| Check | Status | Notes |
+|---|---|---|
+| Backend TypeScript check (`cd backend; npm run typecheck`) | PASS (latest local run) | Passed after targeted P11 risk fixes in this session. |
+| Frontend production build (`cd frontend; npm run build`) | PASS (latest local run) | Passed after targeted P11 risk fixes in this session. |
+| Prisma validation (`cd backend; npx prisma validate`) | PASS (local run during cleanup) | Schema reported valid. |
+| API health/infra checks | PARTIAL | Prior sessions recorded healthy Docker services and API/auth safety checks; not rerun during cleanup. |
+| Ethereal controlled delivery | PASS (prior evidence) | Controlled SMTP delivery recorded with preview/status evidence. |
+| Hourly rate-limit behavior | PARTIAL | Clean quota/reschedule behavior evidenced previously; live Slack hourly-limit notification remains NOT TESTED. |
+| Restart recovery | PARTIAL | Small-scale (e.g., 2/20-job contexts in prior runs) evidenced; 1,000 delayed-job controlled restart not run. |
+| Idempotency | PASS (prior evidence, same `scheduledAt`) | Same payload + same `scheduledAt` returned duplicate behavior as recorded. |
+| Two-worker concurrency | PASS (prior evidence) | Contention stall fix validated by clean 6/6 SENT repro (isolated). |
+| 1,000-job scheduling test | PARTIAL | 1,000 future-dated scheduling/persistence/API response observed; not a 1,000 real-send delivery test. |
+| Two-user API isolation | PASS (tested paths, prior evidence) | Authenticated API isolation checks recorded. |
+| Elasticsearch A/B isolation (P11 Phase 2) | PASS (method B, prior evidence) | Temp sessions + isolated indexed docs verified no cross-user search/detail leak; test data cleaned. |
+| Google OAuth/browser E2E + frontend isolation/session independence (P11 Phase 3/5) | PARTIAL (user-reported manual) | User reported verification in 2 browser profiles; not directly observed by this cleanup run. |
+| Slack 2-account isolation (P11 Phase 4) | NOT TESTED | Only one authorized Slack account context was available in prior verification. |
+| Tight 2s minimum-delay boundary | PARTIAL | Observed gaps were >= 2s but inflated by Ethereal/processing overhead; not a tight boundary proof. |
+
+Strict exactly-once SMTP delivery is **not** guaranteed. The system uses idempotency keys, stable job IDs, locks, and DB claims to reduce duplicates, but a crash between provider acceptance and final DB/status commit can still create ambiguity.
+
+## Known limitations
+
+- Ethereal Email is used for test delivery; messages are not delivered to real recipient inboxes.
+- Exactly-once SMTP delivery cannot be guaranteed across crashes occurring after provider acceptance but before the database update.
+- Startup reconciliation currently loads pending email records without pagination.
+- The 1,000-email load test validates scheduling and persistence, not the actual delivery of 1,000 emails.
+- Minimum-delay verification confirmed that observed send intervals respected the configured minimum, but did not establish exact boundary timing.
+- Slack notification behavior was tested in code paths and partial runtime evidence; connection, disconnection, reconnection, and live hourly-limit notification events are not fully verified as complete runtime evidence in this environment. Independent multi-account Slack isolation remains unverified.
+- 1,000 delayed-job controlled restart recovery was not run.
+- Two-user browser OAuth/E2E and frontend/session-independence checks were reported manually; automated or independently observed browser evidence is not included.
+- Slack OAuth access tokens are currently stored in the database; before production use this should be treated as a security limitation and hardened appropriately.
+- `ComposePage` supports scheduling; rich-text formatting, attachment upload, and compose-page hourly-limit save are not fully wired.
+
+## Assignment compliance checklist
+
+| ReachInbox requirement area | Status | Notes |
+|---|---|---|
+| Email scheduling with persistence | Implemented and partially verified | PostgreSQL + BullMQ delayed jobs; runtime evidence exists. |
+| Background processing / worker | Implemented and partially verified | Separate worker process, BullMQ consumer. |
+| Restart-safe scheduling behavior | Implemented and partially verified | Startup reconcile + persisted infra; 1,000 delayed-job restart not run. |
+| Rate limiting per sender/hour | Implemented and partially verified | Redis-backed quota, `RATE_LIMITED` reschedule; live Slack notification not fully evidenced. |
+| Minimum delay / throttling with concurrency safety | Implemented and partially verified | Redis throttle + locks/claims; contention fix evidenced; tight boundary partial. |
+| Idempotency / duplicate protection | Implemented and partially verified | Unique keys, stable job IDs, conditional claims; SMTP not exactly-once. |
+| Google OAuth login | Implemented and partially verified | Code implemented; browser E2E manually reported. |
+| Dashboard / scheduled / sent / compose UI | Implemented and partially verified | Routes/components present; full browser/Figma flow not independently verified. |
+| Elasticsearch integration | Implemented and partially verified | Index/search implemented; ES A/B isolation PASS (method B). |
+| Slack integration | Implemented but partially verified | OAuth/notification paths exist; live notification and 2-account isolation not fully verified. |
+| Bull Board / queue monitoring | Implemented and partially verified | Protected UI + stats endpoint; target-environment exposure not fully verified. |
+| Two-user isolation | Implemented and partially verified | P10 API paths PASS, P11 ES A/B PASS, browser/session checks manually reported; Slack 2-account not tested. |
+| Submission packaging (README, repo, collaborators, demo) | Not verified | This README is updated; private GitHub repo/push, collaborator access, and <=5-minute demo remain outstanding. |
